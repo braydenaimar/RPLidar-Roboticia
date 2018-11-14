@@ -158,12 +158,11 @@ class RPLidar(object):
         payload = struct.pack("<H", pwm)
         self._send_payload_cmd(SET_PWM_BYTE, payload)
 
-    @property
-    def motor_speed(self):
-        return self._motor_speed
+    def motor_speed(self, pwm=None):
+        """Get or set motor speed pwm."""
+        if pwm is None:
+            return self._motor_speed
 
-    @motor_speed.setter
-    def motor_speed(self, pwm):
         assert(0 <= pwm <= MAX_MOTOR_PWM)
         self._motor_speed = pwm
         if self.motor_running:
@@ -316,15 +315,24 @@ class RPLidar(object):
         '''
         if self.scanning[0]:
             return 'Scanning already running !'
-        '''Start the scanning process, enable laser diode and the
-        measurement system'''
-        status, error_code = self.get_health()
+        # status, error_code = self.get_health()
+        health_data = self.get_health()
+        try:
+            status, error_code = health_data
+        except ValueError as err:
+            self.logger.warning(err, health_data)
+
         self.logger.debug('Health status: %s [%d]', status, error_code)
         if status == _HEALTH_STATUSES[2]:
             self.logger.warning('Trying to reset sensor due to the error. '
                                 'Error code: %d', error_code)
             self.reset()
-            status, error_code = self.get_health()
+            # status, error_code = self.get_health()
+            health_data = self.get_health()
+            try:
+                status, error_code = health_data
+            except ValueError as err:
+                self.logger.warning(err, health_data)
             if status == _HEALTH_STATUSES[2]:
                 raise RPLidarException('RPLidar hardware failure. '
                                        'Error code: %d' % error_code)
@@ -385,15 +393,14 @@ class RPLidar(object):
             self.start(scan_type)
         while True:
             dsize = self.scanning[1]
-            if max_buf_meas:
-                data_in_buf = self._serial.inWaiting()
-                if data_in_buf > max_buf_meas:
-                    self.logger.warning(
-                        'Too many bytes in the input buffer: %d/%d. '
-                        'Cleaning buffer...',
-                        data_in_buf, max_buf_meas)
-                    self.stop()
-                    self.start(self.scanning[2])
+            # if max_buf_meas:
+            #     data_in_buf = self._serial.inWaiting()
+            #     if data_in_buf > max_buf_meas:
+            #         self.logger.warning(
+            #             'Too many bytes in the input buffer: %d/%d. Cleaning buffer...',
+            #             data_in_buf, max_buf_meas)
+            #         self.stop()
+            #         self.start(self.scanning[2])
 
             if self.scanning[2] == 'normal':
                 raw = self._read_response(dsize)
@@ -448,6 +455,15 @@ class RPLidar(object):
         for new_scan, quality, angle, distance in iterator:
             if new_scan:
                 if len(scan_list) > min_len:
+                    if max_buf_meas:
+                        data_in_buf = self._serial.inWaiting()
+                        # self.logger.debug('Bytes in the input buffer: %d/%d.', data_in_buf, max_buf_meas)
+                        if data_in_buf > max_buf_meas:
+                            self.logger.warning(
+                                'Too many bytes in the input buffer: %d/%d. Cleaning buffer...',
+                                data_in_buf, max_buf_meas)
+                            self.stop()
+                            self.start(self.scanning[2])
                     yield scan_list
                 scan_list = []
             if distance > 0:
